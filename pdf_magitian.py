@@ -9,7 +9,7 @@ class PDFUtilityApp:
     def __init__(self, root):
         self.root = root
         self.root.title("PDF Utility")
-        self.root.geometry("700x450")
+        self.root.geometry("760x460")
         self.root.resizable(False, False)
 
         self.pdf_files = []
@@ -28,8 +28,11 @@ class PDFUtilityApp:
         frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
         self.listbox = tk.Listbox(
-            frame, selectmode=tk.MULTIPLE,
-            width=75, height=15, font=("Segoe UI", 10)
+            frame,
+            selectmode=tk.MULTIPLE,
+            width=80,
+            height=15,
+            font=("Segoe UI", 10)
         )
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
@@ -50,6 +53,7 @@ class PDFUtilityApp:
         ttk.Button(button_frame, text="Rotate PDFs", command=self.rotate_pdfs).grid(row=0, column=3, padx=4)
         ttk.Button(button_frame, text="Delete Pages", command=self.delete_pages).grid(row=0, column=4, padx=4)
         ttk.Button(button_frame, text="Split PDF", command=self.split_pdf).grid(row=0, column=5, padx=4)
+        ttk.Button(button_frame, text="Extract Pages", command=self.extract_pages_range).grid(row=0, column=6, padx=4)
 
         buttons = button_frame.winfo_children()
         self.remove_button = buttons[1]
@@ -57,6 +61,7 @@ class PDFUtilityApp:
         self.rotate_button = buttons[3]
         self.delete_button = buttons[4]
         self.split_button = buttons[5]
+        self.extract_button = buttons[6]
 
     # ---------- HELPERS ----------
     def update_buttons(self):
@@ -67,6 +72,7 @@ class PDFUtilityApp:
             self.rotate_button,
             self.delete_button,
             self.split_button,
+            self.extract_button,
         ):
             btn.config(state=state)
 
@@ -186,58 +192,93 @@ class PDFUtilityApp:
 
         messagebox.showinfo("Success", "Pages deleted successfully!")
 
+    # ---------- SPLIT ----------
     def split_pdf(self):
         selected = list(self.listbox.curselection())
         if len(selected) != 1:
-            messagebox.showwarning("Warning", "Select exactly ONE PDF to split.")
+            messagebox.showwarning("Warning", "Select exactly ONE PDF.")
             return
 
-        pdf_path = self.pdf_files[selected[0]]
-        reader = self.safe_read_pdf(pdf_path)
+        reader = self.safe_read_pdf(self.pdf_files[selected[0]])
         if not reader:
             return
 
-        total_pages = len(reader.pages)
+        total = len(reader.pages)
         split_page = simpledialog.askinteger(
             "Split PDF",
-            f"Split AFTER page number (1–{total_pages - 1}):"
+            f"Split AFTER page (1–{total - 1}):"
         )
 
-        if not split_page or split_page < 1 or split_page >= total_pages:
-            messagebox.showerror("Error", "Invalid split page number.")
+        if not split_page or split_page < 1 or split_page >= total:
             return
 
-        folder = filedialog.askdirectory(title="Select output folder")
+        folder = filedialog.askdirectory()
         if not folder:
             return
 
-        base = os.path.splitext(os.path.basename(pdf_path))[0]
+        base = os.path.splitext(os.path.basename(self.pdf_files[selected[0]]))[0]
 
-        writer1 = PdfWriter()
-        writer2 = PdfWriter()
-
+        w1, w2 = PdfWriter(), PdfWriter()
         for i, page in enumerate(reader.pages):
-            if i < split_page:
-                writer1.add_page(page)
-            else:
-                writer2.add_page(page)
+            (w1 if i < split_page else w2).add_page(page)
 
         with open(os.path.join(folder, f"{base}_part1.pdf"), "wb") as f:
-            writer1.write(f)
-
+            w1.write(f)
         with open(os.path.join(folder, f"{base}_part2.pdf"), "wb") as f:
-            writer2.write(f)
+            w2.write(f)
 
         messagebox.showinfo("Success", "PDF split successfully!")
 
+    # ---------- EXTRACT PAGES (FROM–TO) ----------
+    def extract_pages_range(self):
+        selected = list(self.listbox.curselection())
+        if len(selected) != 1:
+            messagebox.showwarning("Warning", "Select exactly ONE PDF.")
+            return
+
+        reader = self.safe_read_pdf(self.pdf_files[selected[0]])
+        if not reader:
+            return
+
+        total = len(reader.pages)
+
+        start = simpledialog.askinteger("Extract Pages", f"From page (1–{total}):")
+        if start is None:
+            return
+
+        end = simpledialog.askinteger("Extract Pages", f"To page ({start}–{total}):")
+        if end is None:
+            return
+
+        if start < 1 or end > total or start > end:
+            messagebox.showerror("Error", "Invalid page range.")
+            return
+
+        output = filedialog.asksaveasfilename(
+            defaultextension=".pdf",
+            initialfile=f"extracted_{start}-{end}.pdf"
+        )
+        if not output:
+            return
+
+        writer = PdfWriter()
+        for i in range(start - 1, end):
+            writer.add_page(reader.pages[i])
+
+        with open(output, "wb") as f:
+            writer.write(f)
+
+        messagebox.showinfo("Success", "Pages extracted successfully!")
+
+    # ---------- UTIL ----------
     def parse_pages(self, text, max_pages):
         pages = set()
         try:
             for part in text.split(","):
                 part = part.strip()
                 if "-" in part:
-                    start, end = map(int, part.split("-"))
-                    pages.update(range(start - 1, min(end, max_pages)))
+                    s, e = map(int, part.split("-"))
+                    pages.update(range(s - 1, min(e, max_pages)))
                 else:
                     pages.add(int(part) - 1)
         except ValueError:
