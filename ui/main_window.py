@@ -3,13 +3,12 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinterdnd2 import DND_FILES
 import os
 from services.pdf_service import PDFService
-from utils.validators import parse_page_ranges
 
 class PDFUtilityApp:
     def __init__(self, root):
         self.root = root
         self.root.title("PDF Utility")
-        self.root.geometry("760x460")
+        self.root.geometry("820x480")
         self.root.resizable(False, False)
 
         self.pdf_files = []
@@ -18,7 +17,6 @@ class PDFUtilityApp:
         self.create_widgets()
         self.update_buttons()
 
-    # ---------- UI ----------
     def setup_styles(self):
         style = ttk.Style(self.root)
         style.configure("TButton", padding=6, font=("Segoe UI", 10))
@@ -27,71 +25,64 @@ class PDFUtilityApp:
         frame = ttk.Frame(self.root)
         frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
-        self.listbox = tk.Listbox(frame, selectmode=tk.MULTIPLE, width=80, height=15, font=("Segoe UI", 10))
+        self.listbox = tk.Listbox(frame, selectmode=tk.MULTIPLE, width=90, height=15)
         self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.listbox.drop_target_register(DND_FILES)
         self.listbox.dnd_bind("<<Drop>>", self.on_drop)
 
-        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL)
+        scrollbar = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.listbox.yview)
         scrollbar.pack(side=tk.LEFT, fill=tk.Y)
         self.listbox.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.listbox.yview)
 
         button_frame = ttk.Frame(self.root)
         button_frame.pack(pady=10)
 
-        ttk.Button(button_frame, text="Add PDF", command=self.add_pdf).grid(row=0, column=0, padx=4)
-        ttk.Button(button_frame, text="Remove PDF", command=self.remove_pdf).grid(row=0, column=1, padx=4)
-        ttk.Button(button_frame, text="Merge PDFs", command=self.merge_pdfs).grid(row=0, column=2, padx=4)
-        ttk.Button(button_frame, text="Rotate PDFs", command=self.rotate_pdfs).grid(row=0, column=3, padx=4)
-        ttk.Button(button_frame, text="Delete Pages", command=self.delete_pages).grid(row=0, column=4, padx=4)
-        ttk.Button(button_frame, text="Split PDF", command=self.split_pdf).grid(row=0, column=5, padx=4)
-        ttk.Button(button_frame, text="Extract Pages", command=self.extract_pages_range).grid(row=0, column=6, padx=4)
+        buttons = [
+            ("Add PDF", self.add_pdf),
+            ("Remove PDF", self.remove_pdf),
+            ("Merge PDFs", self.merge_pdfs),
+            ("Rotate PDFs", self.rotate_pdfs),
+            ("Delete Pages", self.delete_pages),
+            ("Split PDF", self.split_pdf),
+            ("Extract Pages", self.extract_pages_range),
+            ("Reorder Pages", self.reorder_pages),
+        ]
 
-        buttons = button_frame.winfo_children()
-        self.remove_button = buttons[1]
-        self.merge_button = buttons[2]
-        self.rotate_button = buttons[3]
-        self.delete_button = buttons[4]
-        self.split_button = buttons[5]
-        self.extract_button = buttons[6]
+        self.action_buttons = []
+        for i, (text, cmd) in enumerate(buttons):
+            btn = ttk.Button(button_frame, text=text, command=cmd)
+            btn.grid(row=0, column=i, padx=3)
+            self.action_buttons.append(btn)
 
-    # ---------- HELPERS ----------
     def update_buttons(self):
         state = tk.NORMAL if self.pdf_files else tk.DISABLED
-        for btn in (self.remove_button, self.merge_button, self.rotate_button,
-                    self.delete_button, self.split_button, self.extract_button):
+        for btn in self.action_buttons[1:]:
             btn.config(state=state)
 
-    def safe_read_pdf(self, path):
-        return PDFService.safe_read_pdf(path)
-
-    # ---------- DRAG & DROP ----------
     def on_drop(self, event):
         files = self.root.tk.splitlist(event.data)
-        for file in files:
-            if file.lower().endswith(".pdf") and file not in self.pdf_files:
-                self.pdf_files.append(file)
-                self.listbox.insert(tk.END, os.path.basename(file))
+        for f in files:
+            if f.lower().endswith(".pdf") and f not in self.pdf_files:
+                self.pdf_files.append(f)
+                self.listbox.insert(tk.END, os.path.basename(f))
         self.update_buttons()
 
-    # ---------- ACTIONS ----------
     def add_pdf(self):
         files = filedialog.askopenfilenames(filetypes=[("PDF files", "*.pdf")])
-        for file in files:
-            if file not in self.pdf_files:
-                self.pdf_files.append(file)
-                self.listbox.insert(tk.END, os.path.basename(file))
+        for f in files:
+            if f not in self.pdf_files:
+                self.pdf_files.append(f)
+                self.listbox.insert(tk.END, os.path.basename(f))
         self.update_buttons()
 
     def remove_pdf(self):
         selected = list(self.listbox.curselection())
-        if not selected or not messagebox.askyesno("Confirm", "Remove selected PDFs?"):
+        if not selected:
             return
-        for index in reversed(selected):
-            self.listbox.delete(index)
-            self.pdf_files.pop(index)
+        for i in reversed(selected):
+            self.listbox.delete(i)
+            self.pdf_files.pop(i)
         self.update_buttons()
 
     def merge_pdfs(self):
@@ -108,3 +99,6 @@ class PDFUtilityApp:
 
     def extract_pages_range(self):
         PDFService.extract_pages_range(self.pdf_files, self.listbox)
+
+    def reorder_pages(self):
+        PDFService.open_reorder_window(self.root, self.pdf_files, self.listbox)
