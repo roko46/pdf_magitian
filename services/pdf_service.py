@@ -1,7 +1,7 @@
 from pypdf import PdfReader, PdfWriter
-from tkinter import filedialog, messagebox, simpledialog, ttk
-import tkinter as tk
 import os
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from utils.validators import parse_page_ranges
 
 class PDFService:
@@ -11,7 +11,11 @@ class PDFService:
         try:
             reader = PdfReader(path)
             if reader.is_encrypted:
-                reader.decrypt("")
+                try:
+                    reader.decrypt("")
+                except:
+                    messagebox.showerror("Error", f"Encrypted PDF not supported:\n{path}")
+                    return None
             return reader
         except Exception as e:
             messagebox.showerror("Error", f"Cannot open PDF:\n{path}\n\n{e}")
@@ -20,10 +24,9 @@ class PDFService:
     # ------------------ MERGE ------------------
     @staticmethod
     def merge_pdfs(pdf_files):
-        if not pdf_files:
-            messagebox.showwarning("Warning", "No PDFs selected!")
+        if len(pdf_files) < 2:
+            messagebox.showwarning("Warning", "Select at least 2 PDFs to merge.")
             return
-
         writer = PdfWriter()
         for file in pdf_files:
             reader = PDFService.safe_read_pdf(file)
@@ -31,7 +34,6 @@ class PDFService:
                 return
             for page in reader.pages:
                 writer.add_page(page)
-
         output = filedialog.asksaveasfilename(defaultextension=".pdf")
         if output:
             with open(output, "wb") as f:
@@ -44,22 +46,19 @@ class PDFService:
         selected = list(listbox.curselection())
         if not selected:
             return
-
         degrees = simpledialog.askinteger("Rotate", "Enter 90, 180 or 270:")
         if degrees not in (90, 180, 270):
             return
-
         folder = filedialog.askdirectory(title="Select output folder")
         if not folder:
             return
-
         for index in selected:
             reader = PDFService.safe_read_pdf(pdf_files[index])
             if not reader:
                 continue
             writer = PdfWriter()
             for page in reader.pages:
-                page.rotate_clockwise(degrees)
+                page.rotate(degrees)  # modern pypdf API
                 writer.add_page(page)
             name = os.path.basename(pdf_files[index])
             out = os.path.join(folder, f"rotated_{name}")
@@ -73,15 +72,12 @@ class PDFService:
         selected = list(listbox.curselection())
         if not selected:
             return
-
         pages_input = simpledialog.askstring("Delete Pages", "e.g. 1,3,5-7")
         if not pages_input:
             return
-
         folder = filedialog.askdirectory(title="Select output folder")
         if not folder:
             return
-
         for index in selected:
             reader = PDFService.safe_read_pdf(pdf_files[index])
             if not reader:
@@ -104,20 +100,16 @@ class PDFService:
         if len(selected) != 1:
             messagebox.showwarning("Warning", "Select exactly ONE PDF.")
             return
-
         reader = PDFService.safe_read_pdf(pdf_files[selected[0]])
         if not reader:
             return
-
         total = len(reader.pages)
         split_page = simpledialog.askinteger("Split PDF", f"Split AFTER page (1–{total - 1}):")
         if not split_page or split_page < 1 or split_page >= total:
             return
-
         folder = filedialog.askdirectory()
         if not folder:
             return
-
         base = os.path.splitext(os.path.basename(pdf_files[selected[0]]))[0]
         w1, w2 = PdfWriter(), PdfWriter()
         for i, page in enumerate(reader.pages):
@@ -135,24 +127,21 @@ class PDFService:
         if len(selected) != 1:
             messagebox.showwarning("Warning", "Select exactly ONE PDF.")
             return
-
         reader = PDFService.safe_read_pdf(pdf_files[selected[0]])
         if not reader:
             return
         total = len(reader.pages)
-
         start = simpledialog.askinteger("Extract Pages", f"From page (1–{total}):")
         if start is None:
             return
         end = simpledialog.askinteger("Extract Pages", f"To page ({start}–{total}):")
         if end is None or start > end:
             return
-
+        end = min(end, total)
         output = filedialog.asksaveasfilename(defaultextension=".pdf",
                                               initialfile=f"extracted_{start}-{end}.pdf")
         if not output:
             return
-
         writer = PdfWriter()
         for i in range(start - 1, end):
             writer.add_page(reader.pages[i])
@@ -160,14 +149,13 @@ class PDFService:
             writer.write(f)
         messagebox.showinfo("Success", "Pages extracted successfully!")
 
-    # ------------------ REORDER PAGES (MOVE UP/DOWN) ------------------
+    # ------------------ REORDER PAGES WITH DRAG & DROP ------------------
     @staticmethod
     def open_reorder_window(root, pdf_files, listbox):
         selected = list(listbox.curselection())
         if len(selected) != 1:
             messagebox.showwarning("Warning", "Select exactly ONE PDF.")
             return
-
         reader = PDFService.safe_read_pdf(pdf_files[selected[0]])
         if not reader:
             return
@@ -179,49 +167,39 @@ class PDFService:
         win.geometry("300x400")
         win.resizable(False, False)
 
-        lb = tk.Listbox(win, selectmode=tk.EXTENDED)
-        lb.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        reorder_listbox = tk.Listbox(win, selectmode=tk.EXTENDED)
+        reorder_listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         for i in pages:
-            lb.insert(tk.END, f"Page {i + 1}")
+            reorder_listbox.insert(tk.END, f"Page {i + 1}")
 
-        def move_up():
-            sel = lb.curselection()
-            for i in sel:
-                if i == 0:
-                    continue
-                pages[i - 1], pages[i] = pages[i], pages[i - 1]
-                txt = lb.get(i)
-                lb.delete(i)
-                lb.insert(i - 1, txt)
-                lb.selection_set(i - 1)
+        # -------- DRAG & DROP REORDER --------
+        def on_start_drag(event):
+            reorder_listbox.drag_index = reorder_listbox.nearest(event.y)
 
-        def move_down():
-            sel = lb.curselection()[::-1]
-            for i in sel:
-                if i == lb.size() - 1:
-                    continue
-                pages[i + 1], pages[i] = pages[i], pages[i + 1]
-                txt = lb.get(i)
-                lb.delete(i)
-                lb.insert(i + 1, txt)
-                lb.selection_set(i + 1)
+        def on_drag_motion(event):
+            i = reorder_listbox.nearest(event.y)
+            if i == reorder_listbox.drag_index:
+                return
+            reorder_listbox.insert(i, reorder_listbox.get(reorder_listbox.drag_index))
+            reorder_listbox.delete(reorder_listbox.drag_index + (1 if i < reorder_listbox.drag_index else 0))
+            reorder_listbox.drag_index = i
 
+        reorder_listbox.bind("<Button-1>", on_start_drag)
+        reorder_listbox.bind("<B1-Motion>", on_drag_motion)
+
+        # -------- SAVE --------
         def save():
             output = filedialog.asksaveasfilename(defaultextension=".pdf")
             if not output:
                 return
             writer = PdfWriter()
-            for i in pages:
-                writer.add_page(reader.pages[i])
+            for i in range(reorder_listbox.size()):
+                page_index = int(reorder_listbox.get(i).split()[1]) - 1
+                writer.add_page(reader.pages[page_index])
             with open(output, "wb") as f:
                 writer.write(f)
             messagebox.showinfo("Success", "Pages reordered successfully!")
             win.destroy()
 
-        btn_frame = ttk.Frame(win)
-        btn_frame.pack(pady=5)
-
-        ttk.Button(btn_frame, text="⬆ Move Up", command=move_up).grid(row=0, column=0, padx=5)
-        ttk.Button(btn_frame, text="⬇ Move Down", command=move_down).grid(row=0, column=1, padx=5)
-        ttk.Button(btn_frame, text="Save", command=save).grid(row=1, column=0, columnspan=2, pady=10)
+        tk.Button(win, text="Save", command=save).pack(pady=10)

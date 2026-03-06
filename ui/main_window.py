@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, ttk
 from tkinterdnd2 import DND_FILES
 import os
 from services.pdf_service import PDFService
@@ -7,7 +7,7 @@ from services.pdf_service import PDFService
 class PDFUtilityApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("PDF Utility")
+        self.root.title("PDFMagitiana")
         self.root.geometry("820x480")
         self.root.resizable(False, False)
 
@@ -52,16 +52,19 @@ class PDFUtilityApp:
         self.action_buttons = []
         for i, (text, cmd) in enumerate(buttons):
             btn = ttk.Button(button_frame, text=text, command=cmd)
-            btn.grid(row=0, column=i, padx=3)
+            btn.grid(row=i//4, column=i%4, padx=3, pady=3)
             self.action_buttons.append(btn)
 
     def update_buttons(self):
-        state = tk.NORMAL if self.pdf_files else tk.DISABLED
-        for btn in self.action_buttons[1:]:
-            btn.config(state=state)
+        any_pdf = bool(self.pdf_files)
+        self.action_buttons[0].config(state=tk.NORMAL)  # Add PDF
+        self.action_buttons[1].config(state=any_pdf)   # Remove PDF
+        self.action_buttons[2].config(state=tk.NORMAL if len(self.pdf_files) > 1 else tk.DISABLED)  # Merge
+        for btn in self.action_buttons[3:]:
+            btn.config(state=any_pdf)  # Rotate, Delete, Split, Extract, Reorder
 
     def on_drop(self, event):
-        files = self.root.tk.splitlist(event.data)
+        files = [f.strip("{}") for f in self.root.tk.splitlist(event.data)]
         for f in files:
             if f.lower().endswith(".pdf") and f not in self.pdf_files:
                 self.pdf_files.append(f)
